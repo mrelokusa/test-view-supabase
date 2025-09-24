@@ -120,12 +120,12 @@
     
     <script>
         // --- 🔑 Configuration ---
-        // PASTE YOUR SUPABASE URL AND ANON KEY HERE
         const SUPABASE_URL = "https://afcretnuqilwhzxijssx.supabase.co";
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmY3JldG51cWlsd2h6eGlqc3N4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU0MjMyMDYsImV4cCI6MjA3MDk5OTIwNn0.7GXsrkTQSCbeM7GhYYzD4y9ddjaqAejb_3i9QOaFimk";
 
         // --- Initialize Supabase Client ---
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        // FIX: Renamed the variable to 'supabaseClient' to avoid naming conflict
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         // --- DOM Elements ---
         const galleryContainer = document.getElementById('gallery-container');
@@ -136,8 +136,8 @@
          */
         async function fetchAndDisplayCaptures() {
             try {
-                // Fetch data from the 'images' table, ordered by timestamp descending
-                const { data, error } = await supabase
+                // FIX: Use the new 'supabaseClient' variable here
+                const { data, error } = await supabaseClient
                     .from('images')
                     .select('*')
                     .order('timestamp', { ascending: false });
