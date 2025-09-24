@@ -6,6 +6,7 @@
     <title>Raspberry Pi Camera Feed</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/gh/phoboslab/jsmpeg@b5799bf/jsmpeg.min.js"></script>
 
     <style>
         /* General Styling */
@@ -49,14 +50,50 @@
 
         .gallery-card .media-container {
             width: 100%;
+            height: 220px; /* Fixed height for media container */
             background-color: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            position: relative; /* Needed for the overlay */
         }
 
-        .gallery-card img, .gallery-card video {
+        .gallery-card img {
             width: 100%;
-            height: auto;
-            display: block;
+            height: 100%;
+            object-fit: cover;
         }
+        
+        /* Styles for the JSMpeg Canvas and Overlay */
+        .gallery-card canvas {
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+
+        .play-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5em;
+            cursor: pointer;
+            pointer-events: none; /* Allows clicks to go through to the canvas */
+        }
+        .play-overlay span {
+            font-size: 0.6em;
+            margin-top: 5px;
+            font-weight: 300;
+        }
+
 
         .gallery-card .info-container {
             padding: 15px;
@@ -69,7 +106,7 @@
             font-style: italic;
             color: #a0a0a0;
             margin-bottom: 15px;
-            flex-grow: 1; /* Pushes timestamp to the bottom */
+            flex-grow: 1;
         }
 
         .gallery-card .ai-tags-container {
@@ -92,14 +129,14 @@
             font-size: 0.8em;
             color: #777;
             text-align: right;
-            margin-top: auto; /* Aligns to the bottom */
+            margin-top: auto;
         }
 
         #loading-indicator {
             color: #888;
             text-align: center;
             width: 100%;
-            grid-column: 1 / -1; /* Make it span the full width of the grid */
+            grid-column: 1 / -1;
         }
     </style>
 </head>
@@ -124,90 +161,91 @@
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmY3JldG51cWlsd2h6eGlqc3N4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU0MjMyMDYsImV4cCI6MjA3MDk5OTIwNn0.7GXsrkTQSCbeM7GhYYzD4y9ddjaqAejb_3i9QOaFimk";
 
         // --- Initialize Supabase Client ---
-        // FIX: Renamed the variable to 'supabaseClient' to avoid naming conflict
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        // --- DOM Elements ---
         const galleryContainer = document.getElementById('gallery-container');
         const loadingIndicator = document.getElementById('loading-indicator');
 
-        /**
-         * Fetches data from the 'images' table and displays it on the page.
-         */
         async function fetchAndDisplayCaptures() {
             try {
-                // FIX: Use the new 'supabaseClient' variable here
                 const { data, error } = await supabaseClient
                     .from('images')
                     .select('*')
                     .order('timestamp', { ascending: false });
 
-                if (error) {
-                    throw error; // Throw an error if the fetch fails
-                }
+                if (error) { throw error; }
 
-                // Hide the loading indicator
-                if (loadingIndicator) {
-                    loadingIndicator.style.display = 'none';
-                }
+                if (loadingIndicator) { loadingIndicator.style.display = 'none'; }
                 
-                // Clear any existing content
                 galleryContainer.innerHTML = ''; 
 
                 if (data.length === 0) {
-                    galleryContainer.innerHTML = '<p id="loading-indicator">No captures found. Run your Python script to upload some!</p>';
+                    galleryContainer.innerHTML = '<p id="loading-indicator">No captures found.</p>';
                     return;
                 }
 
-                // Loop through each item and create a card for it
                 data.forEach(item => {
-                    const card = createCaptureCard(item);
-                    galleryContainer.appendChild(card);
+                    const card = createAndAppendCard(item);
+                    
+                    // NEW: If the item was a video, find the canvas we just added and attach the player logic
+                    if (item.file_type === 'video' && item.url.endsWith('.h264')) {
+                        const canvas = document.getElementById('video-canvas-' + item.id);
+                        const overlay = document.getElementById('overlay-' + item.id);
+                        
+                        if (canvas) {
+                            // Add a click handler to initialize the player ON DEMAND
+                            canvas.addEventListener('click', () => {
+                                if (overlay) { overlay.style.display = 'none'; } // Hide overlay
+                                try {
+                                    // Initialize the JSMpeg player
+                                    new JSMpeg.Player(item.url, { canvas: canvas, autoplay: true });
+                                } catch (e) {
+                                    console.error('JSMpeg player error:', e);
+                                    canvas.parentElement.innerHTML = '<p style="color:red; text-align:center;">Error playing video.</p>';
+                                }
+                            }, { once: true }); // 'once: true' makes this listener fire only once
+                        }
+                    }
                 });
 
             } catch (error) {
                 console.error('Error fetching data:', error);
-                if(loadingIndicator) {
-                    loadingIndicator.innerText = `Failed to load data: ${error.message}`;
-                }
+                if(loadingIndicator) { loadingIndicator.innerText = `Failed to load data: ${error.message}`; }
             }
         }
 
-        /**
-         * Creates an HTML card element for a single capture item.
-         * @param {object} item - A single record from the 'images' table.
-         * @returns {HTMLElement} - The card element.
-         */
-        function createCaptureCard(item) {
+        function createAndAppendCard(item) {
             const card = document.createElement('div');
             card.className = 'gallery-card';
 
-            // Create media element (image or video)
             let mediaElement;
-            if (item.file_type === 'video') {
+            if (item.file_type === 'video' && item.url.endsWith('.h264')) {
+                // For H264, create a canvas with a unique ID and a "Click to Play" overlay
+                const canvasId = 'video-canvas-' + item.id;
+                const overlayId = 'overlay-' + item.id;
+                mediaElement = `
+                    <canvas id="${canvasId}"></canvas>
+                    <div class="play-overlay" id="${overlayId}">
+                        ▶
+                        <span>Click to Play</span>
+                    </div>
+                `;
+            } else if (item.file_type === 'video') { // For future-proofing with MP4s
                 mediaElement = `<video controls muted loop playsinline src="${item.url}"></video>`;
             } else {
                 mediaElement = `<img src="${item.url}" alt="${item.filename}" loading="lazy">`;
             }
 
-            // Parse detected objects from the JSON string
             let detectedObjects = [];
-            try {
-                detectedObjects = JSON.parse(item.detected_objects || '[]');
-            } catch (e) {
-                console.warn(`Could not parse detected_objects for ${item.filename}:`, item.detected_objects);
-            }
+            try { detectedObjects = JSON.parse(item.detected_objects || '[]'); } catch (e) {}
             
-            // Create HTML for AI tags
             const tagsHTML = detectedObjects.map(obj => {
                 const confidence = (obj.confidence * 100).toFixed(0);
                 return `<span class="ai-tag">${obj.label} (${confidence}%)</span>`;
             }).join('');
 
-            // Format the timestamp to be more readable
             const formattedDate = new Date(item.timestamp).toLocaleString();
 
-            // Use a template literal to build the card's inner HTML
             card.innerHTML = `
                 <div class="media-container">
                     ${mediaElement}
@@ -218,12 +256,10 @@
                     <p class="timestamp">${formattedDate}</p>
                 </div>
             `;
-
+            galleryContainer.appendChild(card);
             return card;
         }
 
-        // --- Main Execution ---
-        // When the page is fully loaded, run the fetch function.
         document.addEventListener('DOMContentLoaded', fetchAndDisplayCaptures);
     </script>
 </body>
