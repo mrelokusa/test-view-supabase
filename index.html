@@ -6,7 +6,6 @@
     <title>Raspberry Pi Camera Feed</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="https://cdn.jsdelivr.net/gh/phoboslab/jsmpeg@b5799bf/jsmpeg.min.js"></script>
 
     <style>
         /* General Styling */
@@ -56,42 +55,34 @@
             align-items: center;
             justify-content: center;
             overflow: hidden;
-            position: relative; /* Needed for the overlay */
         }
 
-        .gallery-card img {
+        .gallery-card img, .gallery-card video {
             width: 100%;
             height: 100%;
-            object-fit: cover;
+            object-fit: cover; /* Ensures media fills the container */
         }
         
-        /* Styles for the JSMpeg Canvas and Overlay */
-        .gallery-card canvas {
-            width: 100%;
-            height: 100%;
-            cursor: pointer;
+        /* Styles for the video placeholder */
+        .video-placeholder {
+            padding: 20px;
+            text-align: center;
+            font-size: 0.9em;
+            color: #888;
         }
 
-        .play-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            color: white;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.5em;
-            cursor: pointer;
-            pointer-events: none; /* Allows clicks to go through to the canvas */
+        .video-placeholder a {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 8px 16px;
+            background-color: #333;
+            color: #eee;
+            text-decoration: none;
+            border-radius: 4px;
+            border: 1px solid #555;
         }
-        .play-overlay span {
-            font-size: 0.6em;
-            margin-top: 5px;
-            font-weight: 300;
+        .video-placeholder a:hover {
+            background-color: #444;
         }
 
 
@@ -106,7 +97,7 @@
             font-style: italic;
             color: #a0a0a0;
             margin-bottom: 15px;
-            flex-grow: 1;
+            flex-grow: 1; /* Pushes timestamp to the bottom */
         }
 
         .gallery-card .ai-tags-container {
@@ -129,14 +120,14 @@
             font-size: 0.8em;
             color: #777;
             text-align: right;
-            margin-top: auto;
+            margin-top: auto; /* Aligns to the bottom */
         }
 
         #loading-indicator {
             color: #888;
             text-align: center;
             width: 100%;
-            grid-column: 1 / -1;
+            grid-column: 1 / -1; /* Make it span the full width of the grid */
         }
     </style>
 </head>
@@ -163,9 +154,13 @@
         // --- Initialize Supabase Client ---
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+        // --- DOM Elements ---
         const galleryContainer = document.getElementById('gallery-container');
         const loadingIndicator = document.getElementById('loading-indicator');
 
+        /**
+         * Fetches data from the 'images' table and displays it on the page.
+         */
         async function fetchAndDisplayCaptures() {
             try {
                 const { data, error } = await supabaseClient
@@ -180,32 +175,13 @@
                 galleryContainer.innerHTML = ''; 
 
                 if (data.length === 0) {
-                    galleryContainer.innerHTML = '<p id="loading-indicator">No captures found.</p>';
+                    galleryContainer.innerHTML = '<p id="loading-indicator">No captures found. Run your Python script to upload some!</p>';
                     return;
                 }
 
                 data.forEach(item => {
-                    const card = createAndAppendCard(item);
-                    
-                    // NEW: If the item was a video, find the canvas we just added and attach the player logic
-                    if (item.file_type === 'video' && item.url.endsWith('.h264')) {
-                        const canvas = document.getElementById('video-canvas-' + item.id);
-                        const overlay = document.getElementById('overlay-' + item.id);
-                        
-                        if (canvas) {
-                            // Add a click handler to initialize the player ON DEMAND
-                            canvas.addEventListener('click', () => {
-                                if (overlay) { overlay.style.display = 'none'; } // Hide overlay
-                                try {
-                                    // Initialize the JSMpeg player
-                                    new JSMpeg.Player(item.url, { canvas: canvas, autoplay: true });
-                                } catch (e) {
-                                    console.error('JSMpeg player error:', e);
-                                    canvas.parentElement.innerHTML = '<p style="color:red; text-align:center;">Error playing video.</p>';
-                                }
-                            }, { once: true }); // 'once: true' makes this listener fire only once
-                        }
-                    }
+                    const card = createCaptureCard(item);
+                    galleryContainer.appendChild(card);
                 });
 
             } catch (error) {
@@ -214,30 +190,35 @@
             }
         }
 
-        function createAndAppendCard(item) {
+        /**
+         * Creates an HTML card element for a single capture item.
+         * @param {object} item - A single record from the 'images' table.
+         * @returns {HTMLElement} - The card element.
+         */
+        function createCaptureCard(item) {
             const card = document.createElement('div');
             card.className = 'gallery-card';
 
             let mediaElement;
+            // This logic shows a download button for H264 files
             if (item.file_type === 'video' && item.url.endsWith('.h264')) {
-                // For H264, create a canvas with a unique ID and a "Click to Play" overlay
-                const canvasId = 'video-canvas-' + item.id;
-                const overlayId = 'overlay-' + item.id;
                 mediaElement = `
-                    <canvas id="${canvasId}"></canvas>
-                    <div class="play-overlay" id="${overlayId}">
-                        ▶
-                        <span>Click to Play</span>
+                    <div class="video-placeholder">
+                        <p>Raw H.264 Video</p>
+                        <span>(Playback not available in browser)</span>
+                        <a href="${item.url}" download>Download File</a>
                     </div>
                 `;
-            } else if (item.file_type === 'video') { // For future-proofing with MP4s
+            } else if (item.file_type === 'video') {
                 mediaElement = `<video controls muted loop playsinline src="${item.url}"></video>`;
             } else {
                 mediaElement = `<img src="${item.url}" alt="${item.filename}" loading="lazy">`;
             }
 
             let detectedObjects = [];
-            try { detectedObjects = JSON.parse(item.detected_objects || '[]'); } catch (e) {}
+            try {
+                detectedObjects = JSON.parse(item.detected_objects || '[]');
+            } catch (e) { console.warn(`Could not parse detected_objects for ${item.filename}:`, item.detected_objects); }
             
             const tagsHTML = detectedObjects.map(obj => {
                 const confidence = (obj.confidence * 100).toFixed(0);
@@ -256,7 +237,6 @@
                     <p class="timestamp">${formattedDate}</p>
                 </div>
             `;
-            galleryContainer.appendChild(card);
             return card;
         }
 
